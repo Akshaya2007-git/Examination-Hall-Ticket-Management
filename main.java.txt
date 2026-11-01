@@ -1,0 +1,871 @@
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+// ==================================================
+// 1. ABSTRACT CLASS PERSON
+// ==================================================
+
+abstract class Person {
+
+    private final String id;
+    private final String name;
+
+    protected Person(String id, String name) {
+        this.id = id;
+        this.name = name;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public abstract String role();
+}
+
+
+// ==================================================
+// 2. STUDENT CLASS
+// ==================================================
+
+class Student extends Person {
+
+    private final double attendance;
+    private final boolean feesCleared;
+    private final String scheduledExam;
+
+    public Student(String id, String name,
+                   double attendance,
+                   boolean feesCleared,
+                   String scheduledExam) {
+
+        super(id, name);
+
+        this.attendance = attendance;
+        this.feesCleared = feesCleared;
+        this.scheduledExam = scheduledExam;
+    }
+
+    public double getAttendance() {
+        return attendance;
+    }
+
+    public boolean isFeesCleared() {
+        return feesCleared;
+    }
+
+    public String getScheduledExam() {
+        return scheduledExam;
+    }
+
+    public boolean isRegisteredFor(String examCode) {
+        return scheduledExam.equals(examCode);
+    }
+
+    @Override
+    public String role() {
+        return "Student";
+    }
+}
+
+
+// ==================================================
+// 3. CUSTOM EXCEPTION
+// ==================================================
+
+class InvalidHallTicketException extends Exception {
+
+    private static final long serialVersionUID = 1L;
+
+    public enum Reason {
+
+        BAD_FORMAT,
+        BAD_CHECKSUM,
+        NOT_ISSUED,
+        DETAILS_MISMATCH,
+        UNKNOWN_STUDENT,
+        ATTENDANCE_SHORTAGE,
+        FEES_PENDING,
+        NOT_REGISTERED,
+        DUPLICATE_ENTRY
+    }
+
+    private final Reason reason;
+
+    public InvalidHallTicketException(
+            Reason reason, String message) {
+
+        super(message);
+        this.reason = reason;
+    }
+
+    public Reason getReason() {
+        return reason;
+    }
+}
+
+
+// ==================================================
+// 4. GENERIC VALIDATOR INTERFACE
+// ==================================================
+
+interface Validator<T> {
+
+    void validate(T item)
+            throws InvalidHallTicketException;
+
+    default boolean isValid(T item) {
+
+        try {
+            validate(item);
+            return true;
+        }
+        catch (InvalidHallTicketException e) {
+            return false;
+        }
+    }
+}
+
+
+// ==================================================
+// 5. HALL TICKET CLASS
+// ==================================================
+
+class HallTicket {
+
+    public static final Pattern FORMAT =
+            Pattern.compile("HT26-(\\d{4})-(\\d)");
+
+    private final String ticketNo;
+    private final String usn;
+    private final String examCode;
+    private final String hallName;
+    private final int row;
+    private final int col;
+
+    public HallTicket(String ticketNo,
+                      String usn,
+                      String examCode,
+                      String hallName,
+                      int row,
+                      int col) {
+
+        this.ticketNo = ticketNo;
+        this.usn = usn;
+        this.examCode = examCode;
+        this.hallName = hallName;
+        this.row = row;
+        this.col = col;
+    }
+
+    public String getTicketNo() {
+        return ticketNo;
+    }
+
+    public String getUsn() {
+        return usn;
+    }
+
+    public String getExamCode() {
+        return examCode;
+    }
+
+    public String getHallName() {
+        return hallName;
+    }
+
+    public int getRow() {
+        return row;
+    }
+
+    public int getCol() {
+        return col;
+    }
+
+    // Generate ticket number
+
+    public static String generateNumber(int seq) {
+
+        if (seq < 0 || seq > 9999) {
+            throw new IllegalArgumentException(
+                    "Sequence must be between 0 and 9999");
+        }
+
+        String digits = String.format("%04d", seq);
+
+        return "HT26-" + digits + "-" + checkDigit(digits);
+    }
+
+    // Calculate checksum
+
+    public static int checkDigit(String digits) {
+
+        int sum = 0;
+
+        for (int i = 0; i < digits.length(); i++) {
+
+            sum += (digits.charAt(i) - '0') * (i + 1);
+        }
+
+        return sum % 10;
+    }
+
+    // Validate checksum
+
+    public static boolean isChecksumValid(String ticketNo) {
+
+        if (ticketNo == null) {
+            return false;
+        }
+
+        Matcher m = FORMAT.matcher(ticketNo);
+
+        return m.matches()
+                && checkDigit(m.group(1))
+                == Integer.parseInt(m.group(2));
+    }
+
+    // Compare ticket details
+
+    public boolean sameDetails(HallTicket other) {
+
+        return other != null
+                && ticketNo.equals(other.ticketNo)
+                && usn.equals(other.usn)
+                && examCode.equals(other.examCode)
+                && hallName.equals(other.hallName)
+                && row == other.row
+                && col == other.col;
+    }
+
+    @Override
+    public String toString() {
+
+        return "Ticket No: " + ticketNo
+                + ", USN: " + usn
+                + ", Exam: " + examCode
+                + ", Hall: " + hallName
+                + ", Seat: (" + row + "," + col + ")";
+    }
+}
+
+
+// ==================================================
+// 6. EXAM HALL CLASS
+// ==================================================
+
+class ExamHall {
+
+    private final String hallName;
+    private final int rows;
+    private final int cols;
+
+    private final Student[][] seats;
+
+    public ExamHall(String hallName, int rows, int cols) {
+
+        this.hallName = hallName;
+        this.rows = rows;
+        this.cols = cols;
+
+        seats = new Student[rows][cols];
+    }
+
+    public String getHallName() {
+        return hallName;
+    }
+
+    public int getRows() {
+        return rows;
+    }
+
+    public int getCols() {
+        return cols;
+    }
+
+    public Student get(int row, int col) {
+        return seats[row][col];
+    }
+
+    public void place(int row, int col, Student student) {
+        seats[row][col] = student;
+    }
+
+    public void display() {
+
+        System.out.println("\nHall: " + hallName);
+
+        for (int r = 0; r < rows; r++) {
+
+            for (int c = 0; c < cols; c++) {
+
+                if (seats[r][c] == null) {
+                    System.out.print("[ EMPTY ] ");
+                }
+                else {
+                    System.out.print(
+                            "[" + seats[r][c].getId() + "] ");
+                }
+            }
+
+            System.out.println();
+        }
+    }
+}
+
+
+// ==================================================
+// 7. STUDENT REPOSITORY
+// ==================================================
+
+class StudentRepository {
+
+    private final Map<String, Student> students =
+            new ConcurrentHashMap<>();
+
+    public void add(Student student) {
+
+        students.put(student.getId(), student);
+    }
+
+    public Optional<Student> findById(String id) {
+
+        return Optional.ofNullable(students.get(id));
+    }
+
+    public List<Student> findAll() {
+
+        return new ArrayList<>(students.values());
+    }
+}
+
+
+// ==================================================
+// 8. SEAT ALLOCATION
+// ==================================================
+
+class SeatAllocator {
+
+    // Check whether two students have the same exam
+
+    private static boolean sameExam(
+            String examCode, Student student) {
+
+        return student != null
+                && examCode.equals(student.getScheduledExam());
+    }
+
+    public static void allocate(
+            List<Student> students,
+            List<ExamHall> halls) {
+
+        // Create separate queues for each exam
+
+        Map<String, Queue<Student>> grouped = new LinkedHashMap<>();
+
+        for (Student student : students) {
+
+            grouped.computeIfAbsent(
+                    student.getScheduledExam(),
+                    k -> new LinkedList<>()
+            ).offer(student);
+        }
+
+        List<Queue<Student>> queues =
+                new ArrayList<>(grouped.values());
+
+        int next = 0;
+        int remaining = students.size();
+
+        for (ExamHall hall : halls) {
+
+            for (int r = 0; r < hall.getRows(); r++) {
+
+                for (int c = 0; c < hall.getCols(); c++) {
+
+                    if (remaining == 0) {
+                        return;
+                    }
+
+                    Student left =
+                            c > 0 ? hall.get(r, c - 1) : null;
+
+                    Student up =
+                            r > 0 ? hall.get(r - 1, c) : null;
+
+                    int pick = -1;
+
+                    // Find a queue with no adjacent exam clash
+
+                    for (int k = 0; k < queues.size(); k++) {
+
+                        int idx = (next + k) % queues.size();
+
+                        if (queues.get(idx).isEmpty()) {
+                            continue;
+                        }
+
+                        if (pick == -1) {
+                            pick = idx;
+                        }
+
+                        String code =
+                                queues.get(idx).peek()
+                                        .getScheduledExam();
+
+                        if (!sameExam(code, left)
+                                && !sameExam(code, up)) {
+
+                            pick = idx;
+                            break;
+                        }
+                    }
+
+                    if (pick == -1) {
+                        return;
+                    }
+
+                    Student selected =
+                            queues.get(pick).poll();
+
+                    hall.place(r, c, selected);
+
+                    next = (pick + 1) % queues.size();
+
+                    remaining--;
+                }
+            }
+        }
+
+        if (remaining > 0) {
+            throw new IllegalStateException(
+                    "Not enough seats for all students");
+        }
+    }
+}
+
+
+// ==================================================
+// 9. HALL TICKET VALIDATOR
+// ==================================================
+
+class HallTicketValidator
+        implements Validator<HallTicket> {
+
+    private static final double MIN_ATTENDANCE = 75.0;
+
+    private final Map<String, HallTicket> issued =
+            new ConcurrentHashMap<>();
+
+    private final Set<String> entered =
+            ConcurrentHashMap.newKeySet();
+
+    private final StudentRepository students;
+
+    public HallTicketValidator(StudentRepository students) {
+
+        this.students = students;
+    }
+
+    // Register issued ticket
+
+    public void registerTicket(HallTicket ticket) {
+
+        issued.put(ticket.getTicketNo(), ticket);
+    }
+
+    @Override
+    public void validate(HallTicket t)
+            throws InvalidHallTicketException {
+
+        String no = t.getTicketNo();
+
+        // Check format
+
+        if (no == null
+                || !HallTicket.FORMAT.matcher(no).matches()) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.BAD_FORMAT,
+                    "Ticket number must look like HT26-0001-5"
+            );
+        }
+
+        // Check checksum
+
+        if (!HallTicket.isChecksumValid(no)) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.BAD_CHECKSUM,
+                    "Check digit does not match - ticket altered"
+            );
+        }
+
+        // Check whether ticket was issued
+
+        HallTicket record = issued.get(no);
+
+        if (record == null) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.NOT_ISSUED,
+                    "Ticket number was never issued"
+            );
+        }
+
+        // Check ticket details
+
+        if (!record.sameDetails(t)) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.DETAILS_MISMATCH,
+                    "Seat/paper details differ from issued record"
+            );
+        }
+
+        // Find student
+
+        Student s = students.findById(t.getUsn())
+                .orElseThrow(() ->
+                        new InvalidHallTicketException(
+                                InvalidHallTicketException.Reason.UNKNOWN_STUDENT,
+                                "USN not found: " + t.getUsn()
+                        ));
+
+        // Check attendance
+
+        if (s.getAttendance() < MIN_ATTENDANCE) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.ATTENDANCE_SHORTAGE,
+
+                    String.format(
+                            "Attendance %.1f%% is below %.0f%%",
+                            s.getAttendance(),
+                            MIN_ATTENDANCE
+                    )
+            );
+        }
+
+        // Check fees
+
+        if (!s.isFeesCleared()) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.FEES_PENDING,
+                    "Examination fees are pending"
+            );
+        }
+
+        // Check registration
+
+        if (!s.isRegisteredFor(t.getExamCode())) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.NOT_REGISTERED,
+                    "Not registered for paper " + t.getExamCode()
+            );
+        }
+
+        // Prevent duplicate entry
+
+        if (!entered.add(no)) {
+
+            throw new InvalidHallTicketException(
+                    InvalidHallTicketException.Reason.DUPLICATE_ENTRY,
+                    "Ticket already used for entry"
+            );
+        }
+    }
+}
+
+
+// ==================================================
+// 10. MULTITHREADED BATCH VALIDATION
+// ==================================================
+
+class BatchValidator {
+
+    public static void validateBatch(
+            List<HallTicket> batch,
+            HallTicketValidator validator) {
+
+        ExecutorService pool =
+                Executors.newFixedThreadPool(4);
+
+        AtomicInteger accepted = new AtomicInteger();
+
+        AtomicInteger rejected = new AtomicInteger();
+
+        Map<String, String> rejectedList =
+                new ConcurrentSkipListMap<>();
+
+        Set<String> threads =
+                ConcurrentHashMap.newKeySet();
+
+        List<Callable<Void>> tasks = new ArrayList<>();
+
+        for (HallTicket t : batch) {
+
+            tasks.add(() -> {
+
+                threads.add(
+                        Thread.currentThread().getName()
+                );
+
+                try {
+
+                    validator.validate(t);
+
+                    accepted.incrementAndGet();
+
+                }
+                catch (InvalidHallTicketException e) {
+
+                    rejected.incrementAndGet();
+
+                    rejectedList.put(
+                            t.getTicketNo() + " " + e.getReason(),
+                            e.getMessage()
+                    );
+                }
+
+                return null;
+            });
+        }
+
+        try {
+
+            List<Future<Void>> futures =
+                    pool.invokeAll(tasks);
+
+            for (Future<Void> f : futures) {
+                f.get();
+            }
+
+        }
+        catch (InterruptedException e) {
+
+            Thread.currentThread().interrupt();
+
+            System.out.println(
+                    "Batch interrupted: " + e
+            );
+
+        }
+        catch (ExecutionException e) {
+
+            System.out.println(
+                    "Task execution failed: " + e
+            );
+
+        }
+        finally {
+
+            pool.shutdown();
+        }
+
+        // Display results
+
+        System.out.println("\n========== BATCH VALIDATION ==========");
+
+        System.out.println(
+                "Accepted tickets: " + accepted.get()
+        );
+
+        System.out.println(
+                "Rejected tickets: " + rejected.get()
+        );
+
+        System.out.println(
+                "Threads used: " + threads
+        );
+
+        System.out.println("\nRejected Ticket Details:");
+
+        for (Map.Entry<String, String> entry :
+                rejectedList.entrySet()) {
+
+            System.out.println(
+                    entry.getKey() + " : " + entry.getValue()
+            );
+        }
+    }
+}
+
+
+// ==================================================
+// 11. MAIN CLASS
+// ==================================================
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        // Create student repository
+
+        StudentRepository repository =
+                new StudentRepository();
+
+        // Create students
+
+        Student s1 = new Student(
+                "USN001", "Rahul",
+                90, true, "JAVA"
+        );
+
+        Student s2 = new Student(
+                "USN002", "Priya",
+                85, true, "PYTHON"
+        );
+
+        Student s3 = new Student(
+                "USN003", "Arun",
+                60, true, "JAVA"
+        );
+
+        Student s4 = new Student(
+                "USN004", "Sneha",
+                88, false, "PYTHON"
+        );
+
+        Student s5 = new Student(
+                "USN005", "Kiran",
+                95, true, "JAVA"
+        );
+
+        Student s6 = new Student(
+                "USN006", "Anu",
+                80, true, "PYTHON"
+        );
+
+        repository.add(s1);
+        repository.add(s2);
+        repository.add(s3);
+        repository.add(s4);
+        repository.add(s5);
+        repository.add(s6);
+
+        // Display students
+
+        System.out.println("========== STUDENT DETAILS ==========");
+
+        for (Student s : repository.findAll()) {
+
+            System.out.println(
+                    s.getId() + " | "
+                    + s.getName() + " | "
+                    + s.role() + " | "
+                    + s.getAttendance() + "%"
+            );
+        }
+
+        // Create examination halls
+
+        ExamHall hall1 =
+                new ExamHall("HALL-A", 2, 3);
+
+        ExamHall hall2 =
+                new ExamHall("HALL-B", 2, 3);
+
+        List<ExamHall> halls =
+                Arrays.asList(hall1, hall2);
+
+        // Allocate seats
+
+        System.out.println("\n========== SEAT ALLOCATION ==========");
+
+        SeatAllocator.allocate(
+                repository.findAll(),
+                halls
+        );
+
+        hall1.display();
+        hall2.display();
+
+        // Generate hall tickets
+
+        System.out.println("\n========== HALL TICKET GENERATION ==========");
+
+        HallTicketValidator validator =
+                new HallTicketValidator(repository);
+
+        List<HallTicket> tickets =
+                new ArrayList<>();
+
+        int sequence = 1;
+
+        for (ExamHall hall : halls) {
+
+            for (int r = 0; r < hall.getRows(); r++) {
+
+                for (int c = 0; c < hall.getCols(); c++) {
+
+                    Student student = hall.get(r, c);
+
+                    if (student == null) {
+                        continue;
+                    }
+
+                    String ticketNo =
+                            HallTicket.generateNumber(sequence++);
+
+                    HallTicket ticket = new HallTicket(
+                            ticketNo,
+                            student.getId(),
+                            student.getScheduledExam(),
+                            hall.getHallName(),
+                            r,
+                            c
+                    );
+
+                    validator.registerTicket(ticket);
+
+                    tickets.add(ticket);
+
+                    System.out.println(ticket);
+                }
+            }
+        }
+
+        // Batch validation
+
+        System.out.println("\n========== TICKET VALIDATION ==========");
+
+        BatchValidator.validateBatch(
+                tickets,
+                validator
+        );
+
+        // Demonstrate duplicate validation
+
+        System.out.println("\n========== DUPLICATE ENTRY TEST ==========");
+
+        if (!tickets.isEmpty()) {
+
+            HallTicket first = tickets.get(0);
+
+            try {
+
+                validator.validate(first);
+
+                System.out.println("Entry Accepted");
+
+            }
+            catch (InvalidHallTicketException e) {
+
+                System.out.println(
+                        "Entry Rejected: " + e.getReason()
+                );
+
+                System.out.println(e.getMessage());
+            }
+        }
+    }
+}
